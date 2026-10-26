@@ -1,9 +1,6 @@
 name: ATLAS Bronze TomTom Collector
 
-on:
-  schedule:
-    - cron: '*/10 * * * *'   # Runs every 10 minutes
-  workflow_dispatch:         # Allows manual 1-click testing & external Cloudflare trigger
+
 
 concurrency:
   group: tomtom-bronze-collector
