@@ -23,7 +23,7 @@ API_MODE = TILE_CONFIG.get("api_mode", "orbis_v2")
 ZOOM = TILE_CONFIG["zoom"]
 BBOX = TILE_CONFIG["bbox"]
 ORBIS_V2_ATTRIBUTES = TILE_CONFIG["orbis_v2_attributes"]
-ORBIS_V1_TAGS = TILE_CONFIG["orbis_v1_tags"]
+ORBIS_V1_TAGS = TILE_CONFIG.get("orbis_v1_tags", ",".join(TILE_CONFIG["all_tags"]))
 ACTIVE_TILES_Z13 = [tuple(pair) for pair in TILE_CONFIG["active_tiles"]]
 
 
@@ -114,32 +114,51 @@ def collect_flow_tiles_zip(session: requests.Session, api_key: str, timestamp_st
 
 def collect_incidents_json(session: requests.Session, api_key: str, timestamp_str: str, iso_now: str) -> str:
     json_filename = f"incidents_{timestamp_str}.json"
-    if API_MODE == "orbis_v2":
-        url = "https://api.tomtom.com/maps/orbis/traffic/incidents/details"
-        params = {
-            "apiVersion": "2",
-            "key": api_key,
-            "bbox": BBOX,
-            "language": "en-GB",
-            "timeValidityFilter": "present"
-        }
-    else:
-        url = "https://api.tomtom.com/maps/orbis/traffic/incidentDetails"
-        params = {
+
+    # 1. Try Orbis v2 Incident Details (uses timeValidity query param + Accept-Language header)
+    url_v2 = "https://api.tomtom.com/maps/orbis/traffic/incidents/details"
+    params_v2 = {
+        "apiVersion": "2",
+        "key": api_key,
+        "bbox": BBOX,
+        "timeValidity": "present"
+    }
+    headers_v2 = {
+        "Accept": "application/json",
+        "Accept-Language": "en-GB"
+    }
+    resp = session.get(url_v2, params=params_v2, headers=headers_v2, timeout=25)
+    used_endpoint = "orbis_v2"
+
+    # 2. Fallback to Orbis v1 Incident Details if v2 returns a 4xx error
+    if resp.status_code != 200:
+        url_v1 = "https://api.tomtom.com/maps/orbis/traffic/incidentDetails"
+        fields_query = (
+            "{incidents{type,geometry{type,coordinates},"
+            "properties{id,iconCategory,magnitudeOfDelay,"
+            "events{description,code,iconCategory},"
+            "startTime,endTime,from,to,length,delay,"
+            "roadNumbers,timeValidity,probabilityOfOccurrence,"
+            "numberOfReports,lastReportTime,"
+            "tmc{countryCode,tableNumber,tableVersion,direction,points{location,offset}}}}}"
+        )
+        params_v1 = {
             "apiVersion": "1",
             "key": api_key,
             "bbox": BBOX,
+            "fields": fields_query,
             "language": "en-GB",
             "timeValidityFilter": "present"
         }
+        resp = session.get(url_v1, params=params_v1, timeout=25)
+        used_endpoint = "orbis_v1"
 
-    resp = session.get(url, params=params, timeout=25)
     resp.raise_for_status()
     raw_payload = resp.json()
 
     enriched_payload = {
         "captured_at_utc": iso_now,
-        "api_mode": API_MODE,
+        "api_mode": used_endpoint,
         "bbox": BBOX,
         "incident_count": len(raw_payload.get("incidents", [])),
         "data": raw_payload
@@ -148,7 +167,7 @@ def collect_incidents_json(session: requests.Session, api_key: str, timestamp_st
     with open(json_filename, "w", encoding="utf-8") as f:
         json.dump(enriched_payload, f, ensure_ascii=False, indent=2)
 
-    print(f"[INFO] Saved {enriched_payload['incident_count']} incidents into {json_filename}")
+    print(f"[INFO] Saved {enriched_payload['incident_count']} incidents into {json_filename} (via {used_endpoint})")
     return json_filename
 
 
