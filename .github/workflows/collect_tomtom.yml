@@ -1,0 +1,39 @@
+name: ATLAS Bronze TomTom Collector
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # Runs every 10 minutes
+  workflow_dispatch:         # Allows manual 1-click testing & external Cloudflare trigger
+
+concurrency:
+  group: tomtom-bronze-collector
+  cancel-in-progress: false
+
+jobs:
+  collect-and-upload:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run TomTom Bronze Collector
+        env:
+          TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+          TOMTOM_API_KEY_2: ${{ secrets.TOMTOM_API_KEY_2 }}
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          GDRIVE_FLOW_FOLDER_ID: ${{ secrets.GDRIVE_FLOW_FOLDER_ID }}
+          GDRIVE_INCIDENTS_FOLDER_ID: ${{ secrets.GDRIVE_INCIDENTS_FOLDER_ID }}
+        run: python collect_bronze.py
